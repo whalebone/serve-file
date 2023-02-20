@@ -132,6 +132,7 @@ func createServer(settings *Settings) *http.Server {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
+			defer object.Close()
 			objectInfo, err := object.Stat()
 			if err != nil {
 				errResp := minio.ToErrorResponse(err)
@@ -145,11 +146,13 @@ func createServer(settings *Settings) *http.Server {
 					return
 				} else if errResp.StatusCode == 0 {
 					log.Printf(RSL00013)
+					log.Printf("%v", err)
 					w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00011)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				} else {
 					log.Printf(RSL00011, objectName, idFromCert, errResp.Code, errResp.Message)
+					log.Printf("%v", err)
 					w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00011)
 					w.WriteHeader(http.StatusInternalServerError)
 					return

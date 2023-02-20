@@ -11,19 +11,15 @@ LABEL Author="Michal Karm Babacek <karm@email.cz"
 ENV GOPATH /gopath
 ENV PROJECT_DIR ${GOPATH}/src/github.com/Karm/serve-file/
 ENV PATH ${PATH}:/opt/go/bin/:/opt/linux-amd64/
-ENV GO_VERSION 1.11.4
-ENV GLIDE_VERSION 0.13.2
+ENV GO_VERSION 1.14.13
 WORKDIR /opt
 RUN dnf install git gcc -y
 RUN curl -L -O https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz
 RUN tar -xvf go${GO_VERSION}.linux-amd64.tar.gz
-RUN curl -L -O https://github.com/Masterminds/glide/releases/download/v${GLIDE_VERSION}/glide-v${GLIDE_VERSION}-linux-amd64.tar.gz
-RUN tar -xvf glide-v${GLIDE_VERSION}-linux-amd64.tar.gz
 ADD . ${PROJECT_DIR}
 WORKDIR ${PROJECT_DIR}
-RUN glide install
-RUN GOARCH=amd64 GOOS=linux go build
-RUN go test
+RUN GO111MODULE=on GOARCH=amd64 GOOS=linux go build .
+RUN GO111MODULE=on go test 
 
 # final stage
 #############
