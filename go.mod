@@ -9,5 +9,5 @@ require (
 	github.com/minio/minio v0.0.0-20201204032319-e083471ec4bc
 	github.com/minio/minio-go v6.0.14+incompatible
 	github.com/stretchr/testify v1.6.1
-	golang.org/x/crypto v0.0.0-20201203163018-be400aefbc4c
+	golang.org/x/crypto v0.1.0
 )
