@@ -20,7 +20,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -32,6 +31,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"whalebone.io/serve-file/config"
+	"whalebone.io/serve-file/testutil"
+	"whalebone.io/serve-file/validation"
 )
 
 const (
@@ -45,10 +47,10 @@ const (
 )
 
 var (
-	caCertBase64     = getBase64(caCertFile)
-	serverCertBase64 = getBase64("certs/server/certs/server.cert.pem")
-	serverKeyBase64  = getBase64("certs/server/private/server.key.nopass.pem")
-	crlBase64        = getBase64("certs/crl/certs/intermediate.crl.pem")
+	caCertBase64     = testutil.GetBase64(caCertFile)
+	serverCertBase64 = testutil.GetBase64("certs/server/certs/server.cert.pem")
+	serverKeyBase64  = testutil.GetBase64("certs/server/private/server.key.nopass.pem")
+	crlBase64        = testutil.GetBase64("certs/crl/certs/intermediate.crl.pem")
 	testMutex        = &sync.Mutex{}
 )
 
@@ -80,25 +82,25 @@ func waitForTCP(timeout time.Duration, addrPort string, connShouldFail bool) {
 }
 
 func waitForOCSP(timeout time.Duration, ocspURL string, caCertFile string, clientCertFile string) {
-	caCertBytes, err := ioutil.ReadFile(caCertFile)
+	caCertBytes, err := os.ReadFile(caCertFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	block, caCertBytes := pem.Decode(caCertBytes)
+	block, _ := pem.Decode(caCertBytes)
 	if block == nil {
-		log.Fatal(MSG00012)
+		log.Fatal(config.MSG00012)
 	}
 	caCert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		log.Fatal(err)
 	}
-	clientCertBytes, err := ioutil.ReadFile(clientCertFile)
+	clientCertBytes, err := os.ReadFile(clientCertFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	block, clientCertBytes = pem.Decode(clientCertBytes)
+	block, _ = pem.Decode(clientCertBytes)
 	if block == nil {
-		log.Fatal(MSG00012)
+		log.Fatal(config.MSG00012)
 	}
 	clientCert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
@@ -106,7 +108,7 @@ func waitForOCSP(timeout time.Duration, ocspURL string, caCertFile string, clien
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		_, ok := certIsRevokedOCSP(clientCert, caCert, ocspURL)
+		_, ok := validation.CertIsRevokedOCSP(clientCert, caCert, ocspURL)
 		if ok {
 			break
 		} else {
@@ -211,13 +213,13 @@ func interaction(t *testing.T, clientName string, headers []string, expectedHTTP
 
 func TestCorrectClient(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
-		[]string{"SRV_API_FILE_DIR", "test-data"},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_API_FILE_DIR", "test-data"},
 	}
 	interaction(t, "client-666", []string{"-Hx-resolver-id: 666"}, []string{"HTTP/1.1 200"},
 		"Content-Length: 9000", props)
@@ -225,14 +227,14 @@ func TestCorrectClient(t *testing.T) {
 
 func TestCorrectClientOCSP(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
-		[]string{"SRV_API_FILE_DIR", "test-data"},
-		[]string{"SRV_OCSP_URL", "http://localhost:" + ocspPort},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_API_FILE_DIR", "test-data"},
+		{"SRV_OCSP_URL", "http://localhost:" + ocspPort},
 	}
 	ocspCMD := startOCSPResponder(ocspPort, "ocsp", "ca-chain")
 	defer stopOCSPResponder(ocspCMD)
@@ -244,14 +246,14 @@ func TestCorrectClientOCSP(t *testing.T) {
 func TestManyCorrectClients(t *testing.T) {
 	apiURL := "/sinkit/rest/protostream/resolvercache/"
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", bindHost},
-		[]string{"SRV_API_URL", apiURL},
-		[]string{"SRV_API_FILE_DIR", "test-data"},
-		[]string{"SRV_OCSP_URL", "http://localhost:" + ocspPort},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", bindHost},
+		{"SRV_API_URL", apiURL},
+		{"SRV_API_FILE_DIR", "test-data"},
+		{"SRV_OCSP_URL", "http://localhost:" + ocspPort},
 	}
 	for _, prop := range props {
 		os.Setenv(prop[0], prop[1])
@@ -301,13 +303,13 @@ func TestManyCorrectClients(t *testing.T) {
 
 func TestCorrectClientCached(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
-		[]string{"SRV_API_FILE_DIR", "test-data"},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_API_FILE_DIR", "test-data"},
 	}
 	headers := []string{
 		"-Hx-resolver-id: 666",
@@ -319,105 +321,105 @@ func TestCorrectClientCached(t *testing.T) {
 
 func TestCorrectClientNoDataFile(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
 	}
 	interaction(t, "client-777", []string{"-Hx-resolver-id: 777"}, []string{"HTTP/1.1 466"},
-		RSP00008, props)
+		config.RSP00008, props)
 }
 
 func TestCorrectClientNoHashFile(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
-		[]string{"SRV_API_FILE_DIR", "test-data"},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_API_FILE_DIR", "test-data"},
 	}
 	// There is no 400_resolver_cache.bin.md5 file to accompany 400_resolver_cache.bin
 	interaction(t, "client-400", []string{"-Hx-resolver-id: 400"}, []string{"HTTP/1.1 466"},
-		RSP00009, props)
+		config.RSP00009, props)
 }
 
 func TestGarbageCommonName(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
 	}
 	// Client client-555.cert.pem has CN "5x5x5" instead of "555"
 	interaction(t, "client-555", []string{"-Hx-resolver-id: 555"}, []string{"HTTP/1.1 403"},
-		RSP00006, props)
+		config.RSP00006, props)
 }
 
 func TestHeaderCertIDDiffers(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
 	}
 	// Client client-999.cert.pem has CN "9" instead of "999"
 	interaction(t, "client-999", []string{"-Hx-resolver-id: 999"}, []string{"HTTP/1.1 403"},
-		fmt.Sprintf(RSP00007, 9, 999, "x-resolver-id"), props)
+		fmt.Sprintf(config.RSP00007, 9, 999, "x-resolver-id"), props)
 }
 
 func TestCorrectClientNoHeader(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
 	}
-	interaction(t, "client-777", []string{}, []string{"HTTP/1.1 400"}, fmt.Sprintf(RSP00005, "x-resolver-id"), props)
+	interaction(t, "client-777", []string{}, []string{"HTTP/1.1 400"}, fmt.Sprintf(config.RSP00005, "x-resolver-id"), props)
 }
 
 func TestCRLRevokedClient(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
-		[]string{"SRV_CRL_PEM_BASE64", crlBase64},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_CRL_PEM_BASE64", crlBase64},
 	}
 	interaction(t, "client-888", []string{}, []string{"HTTP/1.1 403"}, "certificate is revoked in CRL", props)
 }
 
 func TestUnknownCertClient(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
 	}
-	interaction(t, "unknown-client", []string{}, []string{"SSL_ERROR_BAD_CERT_ALERT", "alert bad certificate"}, "", props)
+	interaction(t, "unknown-client", []string{}, []string{"TLS alert, unknown CA (560)", "alert unknown ca"}, "", props)
 }
 
 func TestOCSPRevokedClient(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
-		[]string{"SRV_OCSP_URL", "http://localhost:" + ocspPort},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_OCSP_URL", "http://localhost:" + ocspPort},
 	}
 	ocspCMD := startOCSPResponder(ocspPort, "ocsp", "ca-chain")
 	defer stopOCSPResponder(ocspCMD)
@@ -427,13 +429,13 @@ func TestOCSPRevokedClient(t *testing.T) {
 
 func TestWrongOCSP(t *testing.T) {
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", "localhost"},
-		[]string{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
-		[]string{"SRV_OCSP_URL", "http://localhost:" + ocspPort},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", "localhost"},
+		{"SRV_API_URL", "/sinkit/rest/protostream/resolvercache/"},
+		{"SRV_OCSP_URL", "http://localhost:" + ocspPort},
 	}
 	ocspCMD := startOCSPResponder(ocspPort, "unknown-ocsp", "unknown-ca-chain")
 	defer stopOCSPResponder(ocspCMD)

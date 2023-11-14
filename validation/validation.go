@@ -14,15 +14,14 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-package main
+package validation
 
 import (
 	"bytes"
 	"crypto"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"errors"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 
@@ -32,10 +31,10 @@ import (
 var ocspOpts = ocsp.RequestOptions{
 	Hash: crypto.SHA1,
 }
-var ocspRead = ioutil.ReadAll
+var ocspRead = io.ReadAll
 
-func certIsRevokedCRL(cert *x509.Certificate, crl *pkix.CertificateList) bool {
-	for _, revoked := range crl.TBSCertList.RevokedCertificates {
+func CertIsRevokedCRL(cert *x509.Certificate, crl *x509.RevocationList) bool {
+	for _, revoked := range crl.RevokedCertificateEntries {
 		if cert.SerialNumber.Cmp(revoked.SerialNumber) == 0 {
 			return true
 		}
@@ -43,13 +42,13 @@ func certIsRevokedCRL(cert *x509.Certificate, crl *pkix.CertificateList) bool {
 	return false
 }
 
-func certIsRevokedOCSP(leaf *x509.Certificate, caCert *x509.Certificate, ocspURL string) (revoked, ok bool) {
+func CertIsRevokedOCSP(leaf *x509.Certificate, caCert *x509.Certificate, ocspURL string) (revoked, ok bool) {
 	ocspRequest, err := ocsp.CreateRequest(leaf, caCert, &ocspOpts)
 	if err != nil {
 		log.Printf(err.Error())
 		return
 	}
-	resp, err := sendOCSPRequest(ocspURL, ocspRequest, leaf, caCert)
+	resp, err := SendOCSPRequest(ocspURL, ocspRequest, leaf, caCert)
 	if err != nil {
 		log.Printf(err.Error())
 		return
@@ -62,7 +61,7 @@ func certIsRevokedOCSP(leaf *x509.Certificate, caCert *x509.Certificate, ocspURL
 }
 
 // TODO: Data race?
-func sendOCSPRequest(server string, req []byte, leaf, issuer *x509.Certificate) (*ocsp.Response, error) {
+func SendOCSPRequest(server string, req []byte, leaf, issuer *x509.Certificate) (*ocsp.Response, error) {
 	var resp *http.Response
 	var err error
 	buf := bytes.NewBuffer(req)

@@ -8,4 +8,7 @@ trace.out
 log.log
 glide.lock
 vendor/
-test-data/minio-data/.minio.sys/multipart/
+test-data/minio-data/.minio.sys/multipart
+
+*.code-workspace
+__debug_bin*

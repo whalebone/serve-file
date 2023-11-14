@@ -14,11 +14,8 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-package main
+package config
 
-/**
-Messages
-**/
 const (
 	MSG00001 string = "SRV_CA_CERT_PEM_BASE64 is not a valid base64."
 	MSG00002 string = "SRV_CA_CERT_PEM_FILE is not a valid file."

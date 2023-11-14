@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -33,17 +32,20 @@ import (
 	"time"
 
 	minio "github.com/minio/minio-go"
+	"whalebone.io/serve-file/config"
+	"whalebone.io/serve-file/validation"
 )
 
 const version = "1.0.0"
 
-func createServer(settings *Settings) *http.Server {
+//nolint:gocognit,cyclop
+func createServer(settings *config.Settings) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc(settings.API_URL, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 		if r.TLS == nil {
-			log.Printf(RSL00001)
-			w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00001)
+			log.Printf(config.RSL00001)
+			w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00001)
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
@@ -51,26 +53,26 @@ func createServer(settings *Settings) *http.Server {
 		var idFromCert int64
 		idFromCert, err := strconv.ParseInt(idFromCertStr, 10, 64)
 		if err != nil {
-			log.Printf(RSL00006)
-			w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00006)
+			log.Printf(config.RSL00006)
+			w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00006)
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		if settings.crl != nil && certIsRevokedCRL(r.TLS.VerifiedChains[0][0], settings.crl) {
-			log.Printf(RSL00002, idFromCertStr)
-			w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00002)
+		if settings.CRL != nil && validation.CertIsRevokedCRL(r.TLS.VerifiedChains[0][0], settings.CRL) {
+			log.Printf(config.RSL00002, idFromCertStr)
+			w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00002)
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 		if len(settings.OCSP_URL) > 0 {
-			if revoked, ok := certIsRevokedOCSP(r.TLS.VerifiedChains[0][0], settings.caCert, settings.OCSP_URL); !ok {
-				log.Printf(RSL00003, idFromCertStr, settings.OCSP_URL)
-				w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00003)
+			if revoked, ok := validation.CertIsRevokedOCSP(r.TLS.VerifiedChains[0][0], settings.CACert, settings.OCSP_URL); !ok {
+				log.Printf(config.RSL00003, idFromCertStr, settings.OCSP_URL)
+				w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00003)
 				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			} else if revoked {
-				log.Printf(RSL00004, idFromCertStr, settings.OCSP_URL)
-				w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00004)
+				log.Printf(config.RSL00004, idFromCertStr, settings.OCSP_URL)
+				w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00004)
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
@@ -79,16 +81,16 @@ func createServer(settings *Settings) *http.Server {
 		idFromHeader, err = strconv.ParseInt(
 			strings.Trim(r.Header.Get(settings.API_ID_REQ_HEADER), " "), 10, 64)
 		if err != nil {
-			log.Printf(RSL00005, idFromCertStr, settings.API_ID_REQ_HEADER)
+			log.Printf(config.RSL00005, idFromCertStr, settings.API_ID_REQ_HEADER)
 			w.Header().Set(settings.API_RSP_ERROR_HEADER,
-				fmt.Sprintf(RSP00005, settings.API_ID_REQ_HEADER))
+				fmt.Sprintf(config.RSP00005, settings.API_ID_REQ_HEADER))
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		if idFromCert != idFromHeader {
-			log.Printf(RSL00007, idFromCert, idFromHeader, settings.API_ID_REQ_HEADER)
+			log.Printf(config.RSL00007, idFromCert, idFromHeader, settings.API_ID_REQ_HEADER)
 			w.Header().Set(settings.API_RSP_ERROR_HEADER,
-				fmt.Sprintf(RSP00007, idFromCert, idFromHeader, settings.API_ID_REQ_HEADER))
+				fmt.Sprintf(config.RSP00007, idFromCert, idFromHeader, settings.API_ID_REQ_HEADER))
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
@@ -101,16 +103,16 @@ func createServer(settings *Settings) *http.Server {
 		if settings.API_USE_S3 {
 			objectName := fmt.Sprintf(settings.S3_DATA_FILE_TEMPLATE, idFromCertStr, version)
 			// TODO: Move client initialization elsewhere. It is wasteful to do it each time.
-			s3Client, err := minio.New(settings.S3_ENDPOINT, settings.S3_ACCESS_KEY, settings.S3_SECRET_KEY, true)
-			if err != nil {
-				log.Printf(RSL00014, err.Error())
-				w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00014)
+			s3Client, clientErr := minio.New(settings.S3_ENDPOINT, settings.S3_ACCESS_KEY, settings.S3_SECRET_KEY, !settings.S3_UNSECURE_CONNECTION)
+			if clientErr != nil {
+				log.Printf(config.RSL00014, clientErr.Error())
+				w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00014)
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 			if settings.S3_USE_OUR_CACERTPOOL {
 				tr := &http.Transport{
-					TLSClientConfig:    &tls.Config{RootCAs: settings.caCertPool},
+					TLSClientConfig:    &tls.Config{RootCAs: settings.CACertPool, MinVersion: tls.VersionTLS12},
 					DisableCompression: true,
 				}
 				s3Client.SetCustomTransport(tr)
@@ -127,8 +129,8 @@ func createServer(settings *Settings) *http.Server {
 			//s3Client.TraceOn(nil)
 			object, err := s3Client.GetObjectWithContext(ctx, settings.S3_BUCKET_NAME, objectName, opts)
 			if err != nil {
-				log.Printf(RSL00012, objectName, err.Error())
-				w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00011)
+				log.Printf(config.RSL00012, objectName, err.Error())
+				w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00011)
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -137,23 +139,23 @@ func createServer(settings *Settings) *http.Server {
 			if err != nil {
 				errResp := minio.ToErrorResponse(err)
 				if errResp.StatusCode == 404 {
-					log.Printf(RSL00010, objectName, idFromCert, r.TLS.VerifiedChains[0][0].Subject.String())
-					w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00010)
+					log.Printf(config.RSL00010, objectName, idFromCert, r.TLS.VerifiedChains[0][0].Subject.String())
+					w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00010)
 					w.WriteHeader(settings.API_RSP_TRY_LATER_HTTP_CODE)
 					return
 				} else if errResp.StatusCode == 304 {
 					w.WriteHeader(http.StatusNotModified)
 					return
 				} else if errResp.StatusCode == 0 {
-					log.Printf(RSL00013)
+					log.Printf(config.RSL00013)
 					log.Printf("%v", err)
-					w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00011)
+					w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00011)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				} else {
-					log.Printf(RSL00011, objectName, idFromCert, errResp.Code, errResp.Message)
+					log.Printf(config.RSL00011, objectName, idFromCert, errResp.Code, errResp.Message)
 					log.Printf("%v", err)
-					w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00011)
+					w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00011)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
@@ -164,11 +166,11 @@ func createServer(settings *Settings) *http.Server {
 			var timestamp int64
 			if settings.AUDIT_LOG_DOWNLOADS {
 				timestamp = time.Now().UnixNano()
-				log.Printf(RSL00015, timestamp, idFromCert, r.TLS.VerifiedChains[0][0].Subject.Organization[0], objectName)
+				log.Printf(config.RSL00015, timestamp, idFromCert, r.TLS.VerifiedChains[0][0].Subject.Organization[0], objectName)
 			}
 			http.ServeContent(w, r, objectName, time.Time{}, object)
 			if settings.AUDIT_LOG_DOWNLOADS {
-				log.Printf(RSL00016, timestamp, idFromCert, r.TLS.VerifiedChains[0][0].Subject.Organization[0], objectName)
+				log.Printf(config.RSL00016, timestamp, idFromCert, r.TLS.VerifiedChains[0][0].Subject.Organization[0], objectName)
 			}
 		} else {
 			pathToDataFile := fmt.Sprintf(
@@ -180,8 +182,8 @@ func createServer(settings *Settings) *http.Server {
 			// We do not read the file in memory, just metadata to check it exists.
 			_, err = os.Stat(pathToDataFile)
 			if err != nil {
-				log.Printf(RSL00008, pathToDataFile, idFromCert, r.TLS.VerifiedChains[0][0].Subject.String())
-				w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00008)
+				log.Printf(config.RSL00008, pathToDataFile, idFromCert, r.TLS.VerifiedChains[0][0].Subject.String())
+				w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00008)
 				w.WriteHeader(settings.API_RSP_TRY_LATER_HTTP_CODE)
 				return
 			}
@@ -191,10 +193,10 @@ func createServer(settings *Settings) *http.Server {
 				idFromCertStr,
 			)
 			// We do read the hash file at once, just 32 bytes...
-			hash, err := ioutil.ReadFile(pathToHashFile)
+			hash, err := os.ReadFile(pathToHashFile)
 			if err != nil {
-				log.Printf(RSL00009, pathToHashFile, idFromCert, pathToDataFile)
-				w.Header().Set(settings.API_RSP_ERROR_HEADER, RSP00009)
+				log.Printf(config.RSL00009, pathToHashFile, idFromCert, pathToDataFile)
+				w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00009)
 				w.WriteHeader(settings.API_RSP_TRY_LATER_HTTP_CODE)
 				return
 			}
@@ -209,11 +211,11 @@ func createServer(settings *Settings) *http.Server {
 			var timestamp int64
 			if settings.AUDIT_LOG_DOWNLOADS {
 				timestamp = time.Now().UnixNano()
-				log.Printf(RSL00015, timestamp, idFromCert, r.TLS.VerifiedChains[0][0].Subject.Organization[0], pathToDataFile)
+				log.Printf(config.RSL00015, timestamp, idFromCert, r.TLS.VerifiedChains[0][0].Subject.Organization[0], pathToDataFile)
 			}
 			http.ServeFile(w, r, pathToDataFile)
 			if settings.AUDIT_LOG_DOWNLOADS {
-				log.Printf(RSL00016, timestamp, idFromCert, r.TLS.VerifiedChains[0][0].Subject.Organization[0], pathToDataFile)
+				log.Printf(config.RSL00016, timestamp, idFromCert, r.TLS.VerifiedChains[0][0].Subject.Organization[0], pathToDataFile)
 			}
 		}
 		return
@@ -229,8 +231,8 @@ func createServer(settings *Settings) *http.Server {
 			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
 		},
 		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    settings.caCertPool,
-		Certificates: []tls.Certificate{settings.serverKeyPair},
+		ClientCAs:    settings.CACertPool,
+		Certificates: []tls.Certificate{settings.ServerKeyPair},
 	}
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", settings.BIND_HOST, settings.BIND_PORT),
@@ -249,7 +251,7 @@ func main() {
 	sigs := make(chan os.Signal, 1)
 	done := make(chan bool, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	settings := LoadSettings()
+	settings := config.LoadSettings()
 
 	if settings.ENABLE_PROFILE {
 		go func() {
