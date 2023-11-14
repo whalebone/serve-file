@@ -22,7 +22,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -33,9 +32,8 @@ import (
 	"time"
 
 	minioClient "github.com/minio/minio-go"
-	minio "github.com/minio/minio/cmd"
-	_ "github.com/minio/minio/cmd/gateway"
 	"github.com/stretchr/testify/assert"
+	"whalebone.io/serve-file/config"
 )
 
 /*
@@ -47,8 +45,8 @@ const (
 	contentType    = "application/octet-stream"
 	// Note if you change these properties below, you also have to update:
 	// test-data/minio-data/.minio.sys/config/config.json
-	testAccessKeyID     = "xxx"
-	testSecretAccessKey = "12345678"
+	testAccessKeyID     = "minio"
+	testSecretAccessKey = "minio123"
 	testRegion          = "eu-west-1"
 )
 
@@ -73,18 +71,18 @@ func cleanMinioTmpFiles() {
 }
 
 func uploadResolverFiles(dataFiles []string) {
-	s3Client, err := minioClient.NewWithRegion(testEndpoint, testAccessKeyID, testSecretAccessKey, true, testRegion)
+	s3Client, err := minioClient.NewWithRegion(testEndpoint, testAccessKeyID, testSecretAccessKey, false, testRegion)
 	if err != nil {
 		log.Fatal(err)
 	}
 	s3Client.SetAppInfo("Serve-File Test Client", "TEST")
-	caCertBytes, err := ioutil.ReadFile(caCertFile)
+	caCertBytes, err := os.ReadFile(caCertFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	block, caCertBytes := pem.Decode(caCertBytes)
+	block, _ := pem.Decode(caCertBytes)
 	if block == nil {
-		log.Fatal(MSG00012)
+		log.Fatal(config.MSG00012)
 	}
 	caCert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
@@ -126,7 +124,6 @@ func uploadResolverFiles(dataFiles []string) {
 }
 
 func TestCorrectClientWithS3(t *testing.T) {
-	go minio.Main(args)
 	defer syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 	defer cleanMinioTmpFiles()
 	// TODO: We might do an active check instead
@@ -142,21 +139,22 @@ func TestCorrectClientWithS3(t *testing.T) {
 
 	apiURL := "/sinkit/rest/protostream/resolvercache/"
 	props := [][]string{
-		[]string{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
-		[]string{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
-		[]string{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
-		[]string{"SRV_BIND_PORT", bindPort},
-		[]string{"SRV_BIND_HOST", bindHost},
-		[]string{"SRV_API_URL", apiURL},
-		[]string{"SRV_API_FILE_DIR", "test-data"},
-		[]string{"SRV_OCSP_URL", "http://localhost:" + ocspPort},
-		[]string{"SRV_API_USE_S3", "true"},
-		[]string{"SRV_S3_ENDPOINT", testEndpoint},
-		[]string{"SRV_S3_ACCESS_KEY", testAccessKeyID},
-		[]string{"SRV_S3_SECRET_KEY", testSecretAccessKey},
-		[]string{"SRV_S3_BUCKET_NAME", testBucketName},
-		[]string{"SRV_S3_REGION", testRegion},
-		[]string{"SRV_S3_USE_OUR_CACERTPOOL", "true"},
+		{"SRV_CA_CERT_PEM_BASE64", caCertBase64},
+		{"SRV_SERVER_CERT_PEM_BASE64", serverCertBase64},
+		{"SRV_SERVER_KEY_PEM_BASE64", serverKeyBase64},
+		{"SRV_BIND_PORT", bindPort},
+		{"SRV_BIND_HOST", bindHost},
+		{"SRV_API_URL", apiURL},
+		{"SRV_API_FILE_DIR", "test-data"},
+		{"SRV_OCSP_URL", "http://localhost:" + ocspPort},
+		{"SRV_API_USE_S3", "true"},
+		{"SRV_S3_ENDPOINT", testEndpoint},
+		{"SRV_S3_ACCESS_KEY", testAccessKeyID},
+		{"SRV_S3_SECRET_KEY", testSecretAccessKey},
+		{"SRV_S3_BUCKET_NAME", testBucketName},
+		{"SRV_S3_REGION", testRegion},
+		{"SRV_S3_USE_OUR_CACERTPOOL", "true"},
+		{"SRV_S3_UNSECURE_CONNECTION", "true"},
 	}
 	for _, prop := range props {
 		os.Setenv(prop[0], prop[1])

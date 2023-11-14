@@ -1,5 +1,4 @@
 # README
-[![CircleCI](https://circleci.com/gh/Karm/serve-file/tree/master.svg?style=svg)](https://circleci.com/gh/Karm/serve-file/tree/master)
 
 # Build
 En example, by all means use your own tags:
