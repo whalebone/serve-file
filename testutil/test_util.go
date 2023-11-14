@@ -14,14 +14,14 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-package main
+package testutil
 
 import (
 	"encoding/base64"
-	"io/ioutil"
+	"os"
 )
 
-func getBase64(path string) string {
-	fileBytes, _ := ioutil.ReadFile(path)
+func GetBase64(path string) string {
+	fileBytes, _ := os.ReadFile(path)
 	return base64.StdEncoding.EncodeToString(fileBytes)
 }

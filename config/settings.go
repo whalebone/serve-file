@@ -14,23 +14,23 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-package main
+package config
 
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"runtime"
 	"strings"
 
 	"github.com/kelseyhightower/envconfig"
 )
 
+//nolint:revive,stylecheck
 type Settings struct {
 	// Network
 	BIND_HOST string
@@ -86,11 +86,12 @@ type Settings struct {
 	S3_REGION               string
 	S3_GET_OBJECT_TIMEOUT_S uint16
 	S3_USE_OUR_CACERTPOOL   bool
+	S3_UNSECURE_CONNECTION  bool
 
-	serverKeyPair tls.Certificate
-	caCertPool    *x509.CertPool
-	caCert        *x509.Certificate
-	crl           *pkix.CertificateList
+	ServerKeyPair tls.Certificate
+	CACertPool    *x509.CertPool
+	CACert        *x509.Certificate
+	CRL           *x509.RevocationList
 }
 
 func LoadSettings() Settings {
@@ -100,7 +101,7 @@ func LoadSettings() Settings {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	settings.caCertPool = x509.NewCertPool()
+	settings.CACertPool = x509.NewCertPool()
 
 	// Cap on goroutines going haywire
 	if settings.NUM_OF_CPUS <= 0 || settings.NUM_OF_CPUS > runtime.NumCPU() {
@@ -151,13 +152,13 @@ func LoadSettings() Settings {
 		}
 	}
 	if len(settings.CRL_PEM_FILE) > 0 {
-		crlBytes, err = ioutil.ReadFile(settings.CRL_PEM_FILE)
+		crlBytes, err = os.ReadFile(settings.CRL_PEM_FILE)
 		if err != nil {
 			log.Fatal(MSG00023, err)
 		}
 	}
 	if len(crlBytes) > 1 {
-		settings.crl, err = x509.ParseCRL(crlBytes)
+		settings.CRL, err = x509.ParseRevocationList(crlBytes)
 		if err != nil {
 			log.Fatal(MSG00025, err)
 		}
@@ -182,22 +183,22 @@ func LoadSettings() Settings {
 			log.Fatal(MSG00001, err)
 		}
 	} else if len(settings.CA_CERT_PEM_FILE) > 0 {
-		caCertBytes, err = ioutil.ReadFile(settings.CA_CERT_PEM_FILE)
+		caCertBytes, err = os.ReadFile(settings.CA_CERT_PEM_FILE)
 		if err != nil {
 			log.Fatal(MSG00002, err)
 		}
 	} else {
 		log.Fatal(MSG00003)
 	}
-	block, caCertBytes := pem.Decode(caCertBytes)
+	block, _ := pem.Decode(caCertBytes)
 	if block == nil {
 		log.Fatal(MSG00012)
 	}
-	settings.caCert, err = x509.ParseCertificate(block.Bytes)
+	settings.CACert, err = x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		log.Fatal(MSG00004, err)
 	}
-	settings.caCertPool.AddCert(settings.caCert)
+	settings.CACertPool.AddCert(settings.CACert)
 
 	// Server cert key pair
 	var serverCert []byte
@@ -207,7 +208,7 @@ func LoadSettings() Settings {
 			log.Fatal(MSG00005, err)
 		}
 	} else if len(settings.SERVER_CERT_PEM_FILE) > 0 {
-		serverCert, err = ioutil.ReadFile(settings.SERVER_CERT_PEM_FILE)
+		serverCert, err = os.ReadFile(settings.SERVER_CERT_PEM_FILE)
 		if err != nil {
 			log.Fatal(MSG00006, err)
 		}
@@ -221,14 +222,14 @@ func LoadSettings() Settings {
 			log.Fatal(MSG00008, err)
 		}
 	} else if len(settings.SERVER_KEY_PEM_FILE) > 0 {
-		serverKey, err = ioutil.ReadFile(settings.SERVER_KEY_PEM_FILE)
+		serverKey, err = os.ReadFile(settings.SERVER_KEY_PEM_FILE)
 		if err != nil {
 			log.Fatal(MSG00009, err)
 		}
 	} else {
 		log.Fatal(MSG00010)
 	}
-	settings.serverKeyPair, err = tls.X509KeyPair(serverCert, serverKey)
+	settings.ServerKeyPair, err = tls.X509KeyPair(serverCert, serverKey)
 	if err != nil {
 		log.Fatal(MSG00011, err)
 	}

@@ -1,0 +1,28 @@
+name: Build docker image and push to Harbor
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  Built-login-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build and push image
+        run: |-
+          GIT_COMMIT=$(git rev-parse HEAD)
+          VERSION_TAG=$(git describe --exact-match --tags 2>/dev/null)
+          VERSION_TAG=$(echo $VERSION_TAG | tr '[A-Z]' '[a-z]')
+          IMAGE_TAG="harbor.whalebone.io/whalebone/${{ github.event.repository.name }}:${VERSION_TAG}"
+          IMAGE_TAG=$(echo $IMAGE_TAG | tr '[A-Z]' '[a-z]')
+
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login harbor.whalebone.io/whalebone -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+
+          docker build . --file Dockerfile --tag "${IMAGE_TAG}" \
+            --build-arg VERSION="${VERSION_TAG}" \
+            --build-arg GIT_COMMIT="${GIT_COMMIT}" \
+            --build-arg GH_USERNAME=${{ secrets.GH_USERNAME }} \
+            --build-arg GH_TOKEN=${{ secrets.GH_TOKEN }}
+
+          docker push "${IMAGE_TAG}"
