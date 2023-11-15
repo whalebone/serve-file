@@ -7,7 +7,7 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
-    command: server --console-address :9001 /data --certs-dir /minio-conf/certs
+    command: server --console-address :9001 /data
     environment:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: minio123

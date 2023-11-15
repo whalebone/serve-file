@@ -50,7 +50,7 @@ var (
 	caCertBase64     = testutil.GetBase64(caCertFile)
 	serverCertBase64 = testutil.GetBase64("certs/server/certs/server.cert.pem")
 	serverKeyBase64  = testutil.GetBase64("certs/server/private/server.key.nopass.pem")
-	crlBase64        = testutil.GetBase64("certs/crl/certs/intermediate.crl.pem")
+	crlBase64        = testutil.GetBase64("certs/crl/certs/intermediate.crl.der")
 	testMutex        = &sync.Mutex{}
 )
 

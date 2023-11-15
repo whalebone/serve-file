@@ -32,11 +32,10 @@ import (
 	"time"
 
 	minio "github.com/minio/minio-go"
+	"whalebone.io/serve-file/app"
 	"whalebone.io/serve-file/config"
 	"whalebone.io/serve-file/validation"
 )
-
-const version = "1.0.0"
 
 //nolint:gocognit,cyclop
 func createServer(settings *config.Settings) *http.Server {
@@ -283,7 +282,7 @@ func main() {
 		}
 		done <- true
 	}(srv)
-	log.Printf("Running version %s. Ctrl+C to stop.", version)
+	log.Printf("Running version %s (%s). Ctrl+C to stop.", app.Version, app.GitCommit)
 	<-done
 	log.Printf("Stopped.")
 }
