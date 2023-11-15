@@ -18,6 +18,8 @@ jobs:
           - 9000:9000
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up go
         uses: actions/setup-go@v4
         with:
