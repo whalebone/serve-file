@@ -5,7 +5,7 @@ set -x
 
 CA_DIR=trustchain/ca
 INTERM_DIR="${CA_DIR}/intermediate"
-CONF_DIR="$(pwd)/conf"
+CONF_DIR="$(pwd)/certs/conf"
 INTERM_CNF_FILE="${CONF_DIR}/openssl_intermediate.conf"
 CA_CONFIG_FILE="${CONF_DIR}/openssl_ca.conf"
 PASSPHRASE=ChangeIt
@@ -13,8 +13,8 @@ EXPIRATION_DAYS=3650
 SUBJECT_LINE=""
 
 function initialize_cert_dir() {
-    echo 1000 > serial
-    echo 1000 > crlnumber
+    echo 1000 >serial
+    echo 1000 >crlnumber
     touch index.txt
 }
 
@@ -34,10 +34,11 @@ function generate_intermediate_signed_cert_using_extension() {
     NAME="$1"
     EXTENSION="$2"
     COMMON_NAME="$3"
+    LOCATION="${4-999}" # defaults to 999
     if [[ "${EXTENSION}" == "server_cert" ]]; then
         SUBJECT_LINE="/C=CZ/ST=Czech Republic/L=Brno/O=Michal Karm Babacek/OU=Testing/emailAddress=karm@email.cz/CN=${COMMON_NAME}"
     else
-        SUBJECT_LINE="/C=CZ/ST=Czech Republic/L=999/O=Michal Karm Babacek ID: 999/OU=Testing/emailAddress=karm@email.cz/CN=${COMMON_NAME}"
+        SUBJECT_LINE="/C=CZ/ST=Czech Republic/L=${LOCATION}/O=Michal Karm Babacek ID: ${LOCATION}/OU=Testing/emailAddress=karm@email.cz/CN=${COMMON_NAME}"
     fi
     openssl genrsa -aes256 \
         -passout pass:${PASSPHRASE} \
@@ -61,10 +62,10 @@ function generate_intermediate_signed_cert_using_extension() {
 function srv_gen_crt() {
     NAME="$1"
     COMMON_NAME="$2"
-    if [[ "${NAME}" == "ocsp" ]];then
-         generate_intermediate_signed_cert_using_extension ${NAME} "server_cert_ocsp" ${COMMON_NAME}
+    if [[ "${NAME}" == "ocsp" ]]; then
+        generate_intermediate_signed_cert_using_extension ${NAME} "server_cert_ocsp" ${COMMON_NAME}
     else
-         generate_intermediate_signed_cert_using_extension ${NAME} "server_cert" ${COMMON_NAME}
+        generate_intermediate_signed_cert_using_extension ${NAME} "server_cert" ${COMMON_NAME}
     fi
 }
 
@@ -72,10 +73,11 @@ function usr_gen_crt() {
     NAME="$1"
     COMMON_NAME="$2"
     OCSP="$3"
+    LOCATION="$4"
     if [[ "${OCSP}" == "ocsp" ]]; then
-        generate_intermediate_signed_cert_using_extension ${NAME} "usr_cert_ocsp" ${COMMON_NAME}
+        generate_intermediate_signed_cert_using_extension ${NAME} "usr_cert_ocsp" ${COMMON_NAME} ${LOCATION}
     else
-        generate_intermediate_signed_cert_using_extension ${NAME} "usr_cert" ${COMMON_NAME}
+        generate_intermediate_signed_cert_using_extension ${NAME} "usr_cert" ${COMMON_NAME} ${LOCATION}
     fi
 }
 
@@ -127,7 +129,7 @@ function trust_chain_gen() {
         -in ${INTERM_DIR}/csr/${INTERM_FILE_NAME}.csr.pem \
         -out ${INTERM_DIR}/certs/${INTERM_FILE_NAME}.cert.pem
     cat ${INTERM_DIR}/certs/${INTERM_FILE_NAME}.cert.pem \
-        ${CA_DIR}/certs/${CA_FILE_NAME}.cert.pem > ${INTERM_DIR}/certs/${CA_FILE_NAME}-chain.cert.pem
+        ${CA_DIR}/certs/${CA_FILE_NAME}.cert.pem >${INTERM_DIR}/certs/${CA_FILE_NAME}-chain.cert.pem
 }
 
 function archive_certs() {
@@ -148,9 +150,9 @@ function archive_certs() {
     for regexp in "${!certsmask[@]}"; do
         #printf 'Regexp %s is: %s\n' "$regexp" "${certsmask[$regexp]}"
         mkdir "${certsmask[$regexp]}" -p
-        for f in `find trustchain -name "$regexp"`;do 
-        nf=`echo $f | sed "s/.*\/\([^\/]*\)/${PREFIX}\1/g"`;
-        mv $f "${certsmask[$regexp]}${nf}";
+        for f in $(find trustchain -name "$regexp"); do
+            nf=$(echo $f | sed "s/.*\/\([^\/]*\)/${PREFIX}\1/g")
+            mv $f "${certsmask[$regexp]}${nf}"
         done
     done
     cp trustchain/ca/index.txt ca/${PREFIX}index.txt
@@ -166,7 +168,7 @@ create_certificate_revocation_list
 srv_gen_crt "server" "localhost"
 srv_gen_crt "ocsp" "127.0.0.1"
 C=400
-while [ $C -le 550 ];do
+while [ $C -le 550 ]; do
     usr_gen_crt "client-$C" "$C" "ocsp"
     let C=$C+1
 done
@@ -174,7 +176,8 @@ usr_gen_crt "client-555" "5x5x5" "ocsp"
 usr_gen_crt "client-666" "666" "ocsp"
 usr_gen_crt "client-777" "777" "ocsp"
 usr_gen_crt "client-888" "888" "ocsp"
-usr_gen_crt "client-999" "9"  "ocsp"
+usr_gen_crt "client-999" "9" "ocsp"
+usr_gen_crt "client-10001" "10001" "ocsp" "1000042"
 revoke_certificate "client-888"
 create_certificate_revocation_list
 archive_certs ""

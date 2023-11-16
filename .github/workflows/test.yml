@@ -16,6 +16,13 @@ jobs:
           MINIO_ROOT_PASSWORD: minio123
         ports:
           - 9000:9000
+      minio-cloud:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: minio-cloud
+          MINIO_ROOT_PASSWORD: minio-cloud123
+        ports:
+          - 19000:9000
     steps:
       - uses: actions/checkout@v4
         with:

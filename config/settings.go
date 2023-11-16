@@ -77,13 +77,24 @@ type Settings struct {
 	API_DATA_FILE_TEMPLATE string
 	API_HASH_FILE_TEMPLATE string
 
-	API_USE_S3              bool
-	S3_ENDPOINT             string
-	S3_ACCESS_KEY           string
-	S3_SECRET_KEY           string
-	S3_BUCKET_NAME          string
-	S3_DATA_FILE_TEMPLATE   string
-	S3_REGION               string
+	API_USE_S3 bool
+	// main S3
+	S3_ENDPOINT           string
+	S3_ACCESS_KEY         string
+	S3_SECRET_KEY         string
+	S3_BUCKET_NAME        string
+	S3_DATA_FILE_TEMPLATE string
+	S3_REGION             string
+	// cloud S3
+	CLOUD_S3_ENDPOINT           string
+	CLOUD_S3_ACCESS_KEY         string
+	CLOUD_S3_SECRET_KEY         string
+	CLOUD_S3_BUCKET_NAME        string
+	CLOUD_S3_DATA_FILE_TEMPLATE string
+	CLOUD_S3_REGION             string
+	CLOUD_S3_CUSTOMER_ID        string // decides which customer id goes to cloud S3
+
+	// common
 	S3_GET_OBJECT_TIMEOUT_S uint16
 	S3_USE_OUR_CACERTPOOL   bool
 	S3_UNSECURE_CONNECTION  bool
@@ -157,8 +168,13 @@ func LoadSettings() Settings {
 			log.Fatal(MSG00023, err)
 		}
 	}
+
 	if len(crlBytes) > 1 {
-		settings.CRL, err = x509.ParseRevocationList(crlBytes)
+		crlBlock, _ := pem.Decode(crlBytes)
+		if crlBlock == nil {
+			log.Fatal(MSG00025, err)
+		}
+		settings.CRL, err = x509.ParseRevocationList(crlBlock.Bytes)
 		if err != nil {
 			log.Fatal(MSG00025, err)
 		}
@@ -281,6 +297,28 @@ func LoadSettings() Settings {
 			settings.S3_GET_OBJECT_TIMEOUT_S = 180
 			log.Printf(MSG00048, settings.S3_GET_OBJECT_TIMEOUT_S)
 		}
+		if settings.UseCloudS3() {
+			log.Println(MSG00056)
+			if len(settings.CLOUD_S3_ENDPOINT) == 0 {
+				log.Fatal(MSG00049)
+			}
+			if len(settings.CLOUD_S3_ACCESS_KEY) == 0 {
+				log.Fatal(MSG00050)
+			}
+			if len(settings.CLOUD_S3_SECRET_KEY) == 0 {
+				log.Fatal(MSG00051)
+			}
+			if len(settings.CLOUD_S3_BUCKET_NAME) == 0 {
+				log.Fatal(MSG00052)
+			}
+			if len(settings.CLOUD_S3_REGION) == 0 {
+				log.Fatal(MSG00053)
+			}
+			if len(settings.CLOUD_S3_DATA_FILE_TEMPLATE) == 0 {
+				settings.CLOUD_S3_DATA_FILE_TEMPLATE = "%s_resolver_cache%s.bin"
+				log.Printf(MSG00055, settings.CLOUD_S3_DATA_FILE_TEMPLATE)
+			}
+		}
 	} else {
 		// Local filesystem
 		log.Println(MSG00041)
@@ -298,4 +336,8 @@ func LoadSettings() Settings {
 		}
 	}
 	return settings
+}
+
+func (s *Settings) UseCloudS3() bool {
+	return s.CLOUD_S3_CUSTOMER_ID != ""
 }
