@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-resty/resty/v2"
 	minioClient "github.com/minio/minio-go"
 	"github.com/stretchr/testify/assert"
 	"whalebone.io/serve-file/config"
@@ -45,9 +46,19 @@ const (
 	contentType    = "application/octet-stream"
 	// Note if you change these properties below, you also have to update:
 	// test-data/minio-data/.minio.sys/config/config.json
-	testAccessKeyID     = "minio"
-	testSecretAccessKey = "minio123"
-	testRegion          = "eu-west-1"
+	testAccessKeyID          = "minio"
+	testSecretAccessKey      = "minio123"
+	testRegion               = "eu-west-1"
+	testCloudCustomerID      = "1000042"
+	testCloudEndpoint        = "localhost:19000"
+	testCloudBucketName      = "serve-file-cloud"
+	testCloudAccessKeyID     = "minio-cloud"
+	testCloudSecretAccessKey = "minio-cloud123"
+	testCloudRegion          = "eu-east-5"
+	testCloudResolverID      = "10001"
+
+	cloudResolverCert = "certs/client/certs/client-10001.cert.pem" // location 1000042 (client id)
+	cloudResolverKey  = "certs/client/private/client-10001.key.nopass.pem"
 )
 
 var args = []string{
@@ -58,56 +69,41 @@ var args = []string{
 	"test-data/minio-data",
 }
 
-func cleanMinioTmpFiles() {
-	dirsToClean := []string{
-		"test-data/minio-data/.minio.sys/tmp",
-		"test-data/minio-data/.minio.sys/multipart",
-		"test-data/minio-data/.minio.sys/buckets",
-		"test-data/minio-data/serve-file",
-	}
-	for _, dir := range dirsToClean {
-		os.RemoveAll(dir)
-	}
-}
-
 func uploadResolverFiles(dataFiles []string) {
 	s3Client, err := minioClient.NewWithRegion(testEndpoint, testAccessKeyID, testSecretAccessKey, false, testRegion)
 	if err != nil {
 		log.Fatal(err)
 	}
+	uploadS3Files(dataFiles, s3Client, testBucketName)
+}
+
+func uploadCloudResolverFiles(dataFiles []string) {
+	s3Client, err := minioClient.NewWithRegion(testCloudEndpoint, testCloudAccessKeyID, testCloudSecretAccessKey, false, testCloudRegion)
+	if err != nil {
+		log.Fatal(err)
+	}
+	uploadS3Files(dataFiles, s3Client, testCloudBucketName)
+}
+
+func uploadS3Files(dataFiles []string, s3Client *minioClient.Client, bucket string) {
 	s3Client.SetAppInfo("Serve-File Test Client", "TEST")
-	caCertBytes, err := os.ReadFile(caCertFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	block, _ := pem.Decode(caCertBytes)
-	if block == nil {
-		log.Fatal(config.MSG00012)
-	}
-	caCert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		log.Fatal(err)
-	}
-	caCertPool := x509.NewCertPool()
-	caCertPool.AddCert(caCert)
-	tr := &http.Transport{
-		TLSClientConfig:    &tls.Config{RootCAs: caCertPool},
+	s3Client.SetCustomTransport(&http.Transport{
+		TLSClientConfig:    &tls.Config{RootCAs: trustedCACertPool()},
 		DisableCompression: true,
-	}
-	s3Client.SetCustomTransport(tr)
+	})
 	location := testRegion
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	err = s3Client.MakeBucket(testBucketName, location)
+	err := s3Client.MakeBucket(bucket, location)
 	if err != nil {
-		exists, err := s3Client.BucketExists(testBucketName)
+		exists, err := s3Client.BucketExists(bucket)
 		if err == nil && exists {
-			log.Printf("We already own %s\n", testBucketName)
+			log.Printf("We already own %s\n", bucket)
 		} else {
 			log.Fatalln(err)
 		}
 	} else {
-		log.Printf("Successfully created %s\n", testBucketName)
+		log.Printf("Successfully created %s\n", bucket)
 	}
 	log.Println("Bucket Created...")
 
@@ -115,7 +111,7 @@ func uploadResolverFiles(dataFiles []string) {
 		objectName := datafile
 		filePath := fmt.Sprintf("test-data/%s", datafile)
 		n, err := s3Client.FPutObjectWithContext(
-			ctx, testBucketName, objectName, filePath, minioClient.PutObjectOptions{ContentType: contentType})
+			ctx, bucket, objectName, filePath, minioClient.PutObjectOptions{ContentType: contentType})
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -125,7 +121,6 @@ func uploadResolverFiles(dataFiles []string) {
 
 func TestCorrectClientWithS3(t *testing.T) {
 	defer syscall.Kill(syscall.Getpid(), syscall.SIGINT)
-	defer cleanMinioTmpFiles()
 	// TODO: We might do an active check instead
 	log.Println("Gonna wait 5s for startup...")
 	time.Sleep(5000 * time.Millisecond)
@@ -136,6 +131,10 @@ func TestCorrectClientWithS3(t *testing.T) {
 		"403_resolver_cache.bin",
 		"403_resolver_cache_v3.bin",
 		"404_resolver_cache.bin"})
+
+	uploadCloudResolverFiles([]string{
+		"10001_resolver_cache.bin",
+	})
 
 	apiURL := "/sinkit/rest/protostream/resolvercache/"
 	props := [][]string{
@@ -153,8 +152,17 @@ func TestCorrectClientWithS3(t *testing.T) {
 		{"SRV_S3_SECRET_KEY", testSecretAccessKey},
 		{"SRV_S3_BUCKET_NAME", testBucketName},
 		{"SRV_S3_REGION", testRegion},
-		{"SRV_S3_USE_OUR_CACERTPOOL", "true"},
+		// TODO: run minio with custom certificates (certs/server)
+		// test with SRV_S3_USE_OUR_CACERTPOOL=true and SRV_S3_UNSECURE_CONNECTION=false -> GH action will need custom image with certs
+		// {"SRV_S3_USE_OUR_CACERTPOOL", "false"}, // if uncommented package level tests fail
 		{"SRV_S3_UNSECURE_CONNECTION", "true"},
+		{"SRV_CLOUD_S3_CUSTOMER_ID", testCloudCustomerID},
+		{"SRV_CLOUD_S3_ENDPOINT", testCloudEndpoint},
+		{"SRV_CLOUD_S3_ACCESS_KEY", testCloudAccessKeyID},
+		{"SRV_CLOUD_S3_SECRET_KEY", testCloudSecretAccessKey},
+		{"SRV_CLOUD_S3_BUCKET_NAME", testCloudBucketName},
+		{"SRV_CLOUD_S3_REGION", testCloudRegion},
+		{"SRV_AUDIT_LOG_DOWNLOADS", "true"},
 	}
 	for _, prop := range props {
 		os.Setenv(prop[0], prop[1])
@@ -205,4 +213,51 @@ func TestCorrectClientWithS3(t *testing.T) {
 	expectedContent = fmt.Sprintf("Content-Length: %d", clientNumber*10)
 	assert.True(t, strings.Contains(out, expectedContent), fmt.Sprintf("\"%s\" substring not found in \"%s\".", expectedContent, out))
 	assert.True(t, strings.Contains(out, "HTTP/1.1 200"), fmt.Sprintf("\"%s\" substring not found in \"%s\".", "HTTP/1.1 200", out))
+
+	// get cache as cloud customer 1000042 resolver id 10001
+	client := resty.New().
+		SetTLSClientConfig(cloudClientCerts()).
+		SetHeader("x-resolver-id", testCloudResolverID).
+		SetBaseURL(fmt.Sprintf("https://%s:%s%s", bindHost, bindPort, apiURL))
+
+	resp, err := client.R().Get("")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "10001 resolver test data", string(resp.Body()))
+}
+
+func readFile(path string) []byte {
+	file, err := os.ReadFile(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return file
+}
+
+func trustedCACertPool() *x509.CertPool {
+	block, _ := pem.Decode(readFile(caCertFile))
+	if block == nil {
+		log.Fatal(config.MSG00012)
+	}
+	caCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		log.Fatal(err)
+	}
+	caCertPool := x509.NewCertPool()
+	caCertPool.AddCert(caCert)
+
+	return caCertPool
+}
+
+func cloudClientCerts() *tls.Config {
+	cert, err := tls.X509KeyPair(readFile(cloudResolverCert), readFile(cloudResolverKey))
+	if err != nil {
+		panic(fmt.Sprintf("cloud resolver client certificate invalid %v", err))
+	}
+
+	return &tls.Config{
+		RootCAs:       trustedCACertPool(),
+		Renegotiation: tls.RenegotiateOnceAsClient,
+		Certificates:  []tls.Certificate{cert},
+	}
 }

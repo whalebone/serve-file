@@ -34,11 +34,12 @@ import (
 	minio "github.com/minio/minio-go"
 	"whalebone.io/serve-file/app"
 	"whalebone.io/serve-file/config"
+	"whalebone.io/serve-file/s3client"
 	"whalebone.io/serve-file/validation"
 )
 
 //nolint:gocognit,cyclop
-func createServer(settings *config.Settings) *http.Server {
+func createServer(settings *config.Settings, s3main, s3cloud s3client.S3Client) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc(settings.API_URL, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
@@ -49,6 +50,7 @@ func createServer(settings *config.Settings) *http.Server {
 			return
 		}
 		idFromCertStr := string(r.TLS.VerifiedChains[0][0].Subject.CommonName)
+		clientIDFromCert := r.TLS.VerifiedChains[0][0].Subject.Locality[0]
 		var idFromCert int64
 		idFromCert, err := strconv.ParseInt(idFromCertStr, 10, 64)
 		if err != nil {
@@ -101,21 +103,7 @@ func createServer(settings *config.Settings) *http.Server {
 
 		if settings.API_USE_S3 {
 			objectName := fmt.Sprintf(settings.S3_DATA_FILE_TEMPLATE, idFromCertStr, version)
-			// TODO: Move client initialization elsewhere. It is wasteful to do it each time.
-			s3Client, clientErr := minio.New(settings.S3_ENDPOINT, settings.S3_ACCESS_KEY, settings.S3_SECRET_KEY, !settings.S3_UNSECURE_CONNECTION)
-			if clientErr != nil {
-				log.Printf(config.RSL00014, clientErr.Error())
-				w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00014)
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			if settings.S3_USE_OUR_CACERTPOOL {
-				tr := &http.Transport{
-					TLSClientConfig:    &tls.Config{RootCAs: settings.CACertPool, MinVersion: tls.VersionTLS12},
-					DisableCompression: true,
-				}
-				s3Client.SetCustomTransport(tr)
-			}
+
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(settings.S3_GET_OBJECT_TIMEOUT_S)*time.Second)
 			defer cancel()
 			opts := minio.GetObjectOptions{}
@@ -125,9 +113,17 @@ func createServer(settings *config.Settings) *http.Server {
 				//opts.SetMatchETagExcept(etag) <-- this is buggy, it sets ""etag"" and get 403 from proper S3 server. Passes with MINIO backend though.
 				opts.Set("If-None-Match", etag)
 			}
-			//s3Client.TraceOn(nil)
-			object, err := s3Client.GetObjectWithContext(ctx, settings.S3_BUCKET_NAME, objectName, opts)
-			if err != nil {
+
+			var object *minio.Object
+			var getErr error
+			cloudCustomer := settings.CLOUD_S3_CUSTOMER_ID == clientIDFromCert
+			if settings.UseCloudS3() && cloudCustomer {
+				object, getErr = s3cloud.GetObjectWithContext(ctx, objectName, opts)
+			} else {
+				object, getErr = s3main.GetObjectWithContext(ctx, objectName, opts)
+			}
+
+			if getErr != nil {
 				log.Printf(config.RSL00012, objectName, err.Error())
 				w.Header().Set(settings.API_RSP_ERROR_HEADER, config.RSP00011)
 				w.WriteHeader(http.StatusInternalServerError)
@@ -258,7 +254,31 @@ func main() {
 		}()
 	}
 
-	srv := createServer(&settings)
+	// init s3 clients
+	// how to add client id to the app? ENV
+	// decider
+
+	var mainS3Client s3client.S3Client
+	var cloudS3Client s3client.S3Client
+	if settings.API_USE_S3 {
+		var err error
+		mainS3Client, err = s3client.New(settings.S3_ENDPOINT, settings.S3_ACCESS_KEY,
+			settings.S3_SECRET_KEY, settings.S3_BUCKET_NAME, settings.S3_DATA_FILE_TEMPLATE,
+			settings.S3_UNSECURE_CONNECTION, &settings)
+		if err != nil {
+			log.Fatalf("can't initialize main s3 client: %s", err.Error())
+		}
+		if settings.UseCloudS3() {
+			cloudS3Client, err = s3client.New(settings.CLOUD_S3_ENDPOINT, settings.CLOUD_S3_ACCESS_KEY,
+				settings.CLOUD_S3_SECRET_KEY, settings.CLOUD_S3_BUCKET_NAME, settings.CLOUD_S3_DATA_FILE_TEMPLATE,
+				settings.S3_UNSECURE_CONNECTION, &settings)
+			if err != nil {
+				log.Fatalf("can't initialize cloud s3 client: %s", err.Error())
+			}
+		}
+	}
+
+	srv := createServer(&settings, mainS3Client, cloudS3Client)
 	l, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
 		log.Fatal(err)

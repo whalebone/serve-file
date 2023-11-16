@@ -66,6 +66,15 @@ const (
 	MSG00047 string = "SRV_S3_DATA_FILE_TEMPLATE was not set, defaulting to %s."
 	MSG00048 string = "SRV_S3_GET_OBJECT_TIMEOUT_S was not set, defaulting to %ds."
 
+	MSG00049 string = "SRV_CLOUD_S3_ENDPOINT must be set while SRV_API_USE_S3 is True."
+	MSG00050 string = "SRV_CLOUD_S3_ACCESS_KEY must be set while SRV_API_USE_S3 is True."
+	MSG00051 string = "SRV_CLOUD_S3_SECRET_KEY must be set while SRV_API_USE_S3 is True."
+	MSG00052 string = "SRV_CLOUD_S3_BUCKET_NAME must be set while SRV_API_USE_S3 is True."
+	MSG00053 string = "SRV_CLOUD_S3_REGION must be set while SRV_API_USE_S3 is True."
+	MSG00054 string = "SRV_CLOUD_S3_DATA_FILE_TEMPLATE was not set, defaulting to %s."
+	MSG00055 string = "SRV_CLOUD_S3_DATA_FILE_TEMPLATE was not set, defaulting to %s."
+	MSG00056 string = "CLOUD_S3_CUSTOMER_ID set, system will use cloud S3 for this customer ID"
+
 	RSP00001 string = "Your certificate cannot be validated. Go away."
 	RSL00001 string = "TLS not used. It should have been rejected earlier. Server misconfig?"
 	RSP00002 string = "Your certificate is revoked in CRL. Go away."
