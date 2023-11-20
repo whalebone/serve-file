@@ -1,0 +1,14 @@
+name: Dependency vulnerability check
+
+on: pull_request
+
+jobs:
+  vulncheck:
+    runs-on: ubuntu-latest
+    name: Run govulncheck
+    steps:
+      - name: govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod
+          go-package: ./...
